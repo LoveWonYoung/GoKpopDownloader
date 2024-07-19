@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"karina/downloader"
 	"regexp"
+	"strings"
+	"sync"
 )
 
 type urlJson struct {
@@ -14,10 +16,12 @@ type urlJson struct {
 	Content      string            `json:"content"`
 	ReplaceHTML  string            `json:"replaceHtml"`
 }
-
-func kpopPageList() []string {
+var(
+	wg = sync.WaitGroup
+)
+func kpopPageList(page int) []string {
 	var retImageList []string
-	c := downloader.RequestsTextP("https://kpopping.com/profiles/idol/Wonyoung/latest-pictures/1")
+	c := downloader.RequestsTextP(fmt.Sprintf("https://kpopping.com/profiles/idol/Wonyoung/latest-pictures/%v", page))
 	var html urlJson
 	err := json.Unmarshal([]byte(c), &html)
 	if err != nil {
@@ -32,8 +36,27 @@ func kpopPageList() []string {
 	}
 	return retImageList
 }
-func main() {
-	for _, url := range kpopPageList() {
-		fmt.Println(url)
+
+// 从以上返回的链接列表中再次请求，找到每个元素指向所有图片的链接
+func OneLinkAllPic() {
+	// var allPicLink []string
+	for _, l := range kpopPageList(1) {
+		tempReq := downloader.RequestsTextP(l)
+		// 用正则表达式从返回的html中找到所有图片的地址
+		re := regexp.MustCompile(`<a href="/documents/(.*?)" data`)
+		
+		for _, oneLink := range re.FindAllStringSubmatch(tempReq, -1) {
+			wg.Add(1)
+			go func ()  {
+				downloader.DownloadImage(strings.Split(strings.Split(oneLink[1], "/")[3], ".")[0],"https://kpopping.com/documents/"+oneLink[1])
+				wg.Done()
+			}
+			
+		}
+		wg.Wait()
 	}
+
+}
+func main() {
+	OneLinkAllPic()
 }
