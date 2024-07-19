@@ -10,7 +10,12 @@ import (
 func RequestsTextP(url string) string {
 	client := http.Client{}
 	req, _ := http.NewRequest("POST", url, nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 	resp, err := client.Do(req)
+	//fmt.Println(resp.StatusCode, "请求代码")
+	if resp.StatusCode != 200 {
+		return ""
+	}
 	if err != nil {
 		panic(err)
 	}
@@ -65,8 +70,8 @@ func DownloadImage(imgaeName string, downloadLink string) {
 	if err != nil {
 		panic(err)
 	}
-
-	err = os.WriteFile(`result/`+imgaeName+`.jpg`, content, 0666)
+	fmt.Println("下载文件：", imgaeName+`.jpg`)
+	err = os.WriteFile(DownLoadPath+imgaeName+`.jpg`, content, 0666)
 	if err != nil {
 		panic(err)
 	}
