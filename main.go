@@ -17,12 +17,6 @@ type urlJson struct {
 	ReplaceHTML  string            `json:"replaceHtml"`
 }
 
-var (
-	wg     sync.WaitGroup
-	wgReq  sync.WaitGroup
-	wgPage sync.WaitGroup
-)
-
 func kpopPageList(page int) []string {
 	var retImageList []string
 	c := downloader.RequestsTextP(fmt.Sprintf("https://kpopping.com/profiles/idol/%v/latest-pictures/%v", downloader.IDOLNAME, page))
@@ -41,63 +35,44 @@ func kpopPageList(page int) []string {
 	return retImageList
 }
 
-// 从以上返回的链接列表中再次请求，找到每个元素指向所有图片的链接 并发太快了 io跟不上，老是报错
-func OneLinkAllPic() {
-	// var allPicLink []string
-	for page := range 5 {
-		wgPage.Add(1)
+func picturesDownload() {
+	var wgDownloadPage sync.WaitGroup
+	wgDownloadPage.Add(downloader.DOWNLOADPAGE)
+	// 并发请求所有page页面
+	for page := 1; page < downloader.DOWNLOADPAGE+1; page++ {
 		go func(p int) {
-			for _, l := range kpopPageList(p) {
-				wgReq.Add(1)
-				go func(reqLink string) {
-					tempReq := downloader.RequestsTextP(reqLink)
-					// 用正则表达式从返回的html中找到所有图片的地址
+			var kpl sync.WaitGroup
+			k := kpopPageList(p) // 请求一页，返回12个的图片链接
+			kpl.Add(len(k))
+			for _, i := range k {
+				go func(image_link_12 string) {
+					// fmt.Println(image_link_12)
+					tempReq := downloader.RequestsTextP(image_link_12) // 对12个链接其中之一进行请求 ，找到每个链接下所有的图片链接
 					re := regexp.MustCompile(`<a href="/documents/(.*?)" data`)
-					//多线程下载所有图片
-					for _, oneLink := range re.FindAllStringSubmatch(tempReq, -1) {
-						wg.Add(1)
-						go func(name, link string) {
-							downloader.DownloadImage(name, link)
-							defer wg.Done()
-						}(strings.Split(strings.Split(oneLink[1], "/")[3], ".")[0], "https://kpopping.com/documents/"+oneLink[1])
+					everyPicLink := re.FindAllStringSubmatch(tempReq, -1) // 这是每个连接下所有图片的地址
+					var wgEveryPic sync.WaitGroup
+					wgEveryPic.Add(len(everyPicLink))
+					// fmt.Println("这页链接有", len(everyPicLink), "张图片")
+					// 开始下载
+					for _,dl:=range everyPicLink{
+						go func(n,d string){
+							downloader.DownloadImage(n, d)
+							defer wgEveryPic.Done()
+						}(strings.Split(strings.Split(dl[1], "/")[3], ".")[0], "https://kpopping.com/documents/"+dl[1])
 					}
-					wg.Wait()
-					defer wgReq.Done()
-				}(l)
+					wgEveryPic.Wait()
+					defer kpl.Done() // 没请求一次就done一次
+				}(i)
 			}
-			wgReq.Wait()
-			defer wgPage.Done()
-		}(page)
-	}
-	wgPage.Wait()
-}
+			kpl.Wait()
 
-// 从以上返回的链接列表中再次请求，找到每个元素指向所有图片的链接
-func OneLinkAllPic2() {
-	// var allPicLink []string
-	for page := range 2 {
-		for _, l := range kpopPageList(page) {
-			wgReq.Add(1)
-			go func(reqLink string) {
-				tempReq := downloader.RequestsTextP(reqLink)
-				// 用正则表达式从返回的html中找到所有图片的地址
-				re := regexp.MustCompile(`<a href="/documents/(.*?)" data`)
-				//多线程下载所有图片
-				for _, oneLink := range re.FindAllStringSubmatch(tempReq, -1) {
-					wg.Add(1)
-					go func(name, link string) {
-						downloader.DownloadImage(name, link)
-						defer wg.Done()
-					}(strings.Split(strings.Split(oneLink[1], "/")[3], ".")[0], "https://kpopping.com/documents/"+oneLink[1])
-				}
-				wg.Wait()
-				defer wgReq.Done()
-			}(l)
-		}
-		wgReq.Wait()
-		defer wgPage.Done()
+			defer wgDownloadPage.Done()
+		}(page)
+
 	}
+	wgDownloadPage.Wait()
 }
 func main() {
-	OneLinkAllPic2()
+	picturesDownload()
+	fmt.Println("下载完成")
 }
