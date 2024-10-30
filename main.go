@@ -1,3 +1,34 @@
+/*
+ * @Author: LoveWonYoung leeseoimnida@gmail.com
+ * @Date: 2024-07-19 09:35:43
+ * @LastEditors: LoveWonYoung leeseoimnida@gmail.com
+ * @LastEditTime: 2024-10-30 15:36:25
+ * @FilePath: \GoKpopDownloader\main.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
+/*
+                   _ooOoo_
+                  o8888888o
+                  88" . "88
+                  (| -_- |)
+                  O\  =  /O
+               ____/`---'\____
+             .'  \\|     |//  `.
+            /  \\|||  :  |||//  \
+           /  _||||| -:- |||||-  \
+           |   | \\\  -  /// |   |
+           | \_|  ''\---/''  |   |
+           \  .-\__  `-`  ___/-. /
+         ___`. .'  /--.--\  `. . __
+      ."" '<  `.___\_<|>_/___.'  >'"".
+     | | :  `- \`.;`\ _ /`;.`/ - ` : | |
+     \  \ `-.   \_ __\ /__ _/   .-` /  /
+======`-.____`-.___\_____/___.-`____.-'======
+                   `=---='
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            佛祖保佑       永无BUG
+*/
+
 package main
 
 import (
@@ -5,8 +36,10 @@ import (
 	"fmt"
 	"karina/downloader"
 	"regexp"
-	"strings"
 	"sync"
+	"time"
+
+	//	"time"
 )
 
 type urlJson struct {
@@ -17,9 +50,18 @@ type urlJson struct {
 	ReplaceHTML  string            `json:"replaceHtml"`
 }
 
-func kpopPageList(page int) []string {
+var (
+	idol      = "Wonyoung"
+	totalPage = 1
+
+	firstWg     sync.WaitGroup
+	findallPick sync.WaitGroup
+)
+
+// 找到一页的所有链接
+func firstRespStr(page int) []string {
 	var retImageList []string
-	c := downloader.RequestsTextP(fmt.Sprintf("https://kpopping.com/profiles/idol/%v/latest-pictures/%v", downloader.IDOLNAME, page))
+	c := downloader.RequestsTextP(fmt.Sprintf("https://kpopping.com/profiles/idol/%v/latest-pictures/%v", idol, page))
 	var html urlJson
 	err := json.Unmarshal([]byte(c), &html)
 	if err != nil {
@@ -35,44 +77,50 @@ func kpopPageList(page int) []string {
 	return retImageList
 }
 
-func picturesDownload() {
-	var wgDownloadPage sync.WaitGroup
-	wgDownloadPage.Add(downloader.DOWNLOADPAGE)
-	// 并发请求所有page页面
-	for page := 1; page < downloader.DOWNLOADPAGE+1; page++ {
+// 并发找到所有页面的所有链接
+func allRespList() ([]string, int) {
+	firstWg.Add(totalPage)
+	var allLink []string
+	for i := range totalPage {
 		go func(p int) {
-			var kpl sync.WaitGroup
-			k := kpopPageList(p) // 请求一页，返回12个的图片链接
-			kpl.Add(len(k))
-			for _, i := range k {
-				go func(image_link_12 string) {
-					// fmt.Println(image_link_12)
-					tempReq := downloader.RequestsTextP(image_link_12) // 对12个链接其中之一进行请求 ，找到每个链接下所有的图片链接
-					re := regexp.MustCompile(`<a href="/documents/(.*?)" data`)
-					everyPicLink := re.FindAllStringSubmatch(tempReq, -1) // 这是每个连接下所有图片的地址
-					var wgEveryPic sync.WaitGroup
-					wgEveryPic.Add(len(everyPicLink))
-					// fmt.Println("这页链接有", len(everyPicLink), "张图片")
-					// 开始下载
-					for _,dl:=range everyPicLink{
-						go func(n,d string){
-							downloader.DownloadImage(n, d)
-							defer wgEveryPic.Done()
-						}(strings.Split(strings.Split(dl[1], "/")[3], ".")[0], "https://kpopping.com/documents/"+dl[1])
-					}
-					wgEveryPic.Wait()
-					defer kpl.Done() // 没请求一次就done一次
-				}(i)
-			}
-			kpl.Wait()
-
-			defer wgDownloadPage.Done()
-		}(page)
-
+			defer firstWg.Done()
+			allLink = append(allLink, firstRespStr(p+1)...)
+		}(i)
 	}
-	wgDownloadPage.Wait()
+	firstWg.Wait()
+	return allLink, len(allLink)
+}
+
+// 请求一个以上的链接返回一个页面下所有图片的链接
+func respOnePicLink(l string) []string {
+	var onePageAllPicLink []string
+	r := downloader.RequestsTextG(l) // 返回的是一个html网页，直接用正则得到所有图片的链接
+	re := regexp.MustCompile(`<a href="/documents/(.*?)" data`).FindAllStringSubmatch(r, -1)
+	for _, i := range re {
+		onePageAllPicLink = append(onePageAllPicLink, "https://kpopping.com/documents/"+i[1]) // 拼接这些路径
+		fmt.Println("onePageAllPicLink", i[1])
+	}
+	fmt.Println("onePageAllPicLink", onePageAllPicLink)
+	return onePageAllPicLink
+}
+
+//从上面返回的链接中找到所有图片的下载链接
+func allPicList() []string {
+	var res, count = allRespList()
+	var allPicLink []string
+	findallPick.Add(count)
+	for _, l := range res {
+		go func(s string) {
+			defer findallPick.Done()
+			allPicLink = append(allPicLink, respOnePicLink(s)...)
+		}(l)
+	}
+	findallPick.Wait()
+	return allPicLink
 }
 func main() {
-	picturesDownload()
-	fmt.Println("下载完成")
+	start := time.Now()
+	fmt.Println(allPicList())
+	end := time.Since(start)
+	fmt.Println(end)
 }

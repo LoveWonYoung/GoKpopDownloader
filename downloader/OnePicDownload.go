@@ -36,6 +36,7 @@ func RequestsTextP(url string) string {
 func RequestsTextG(url string) string {
 	client := http.Client{}
 	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 	resp, err := client.Do(req)
 	if err != nil {
 		panic(err)
